@@ -40,6 +40,19 @@
         padding: 32px 16px;
       }
 
+      body.fullscreen {
+        padding: 0;
+      }
+
+      body.fullscreen .panel:not(.pivot) {
+        display: none;
+      }
+
+      body.fullscreen .pivot {
+        height: 100vh;
+        border-radius: 0;
+      }
+
       .container {
         width: min(960px, 100%);
         display: grid;
@@ -73,6 +86,10 @@
         border-radius: 12px;
         font-size: 15px;
         resize: vertical;
+      }
+
+      .file-input {
+        margin-top: 12px;
       }
 
       .controls {
@@ -204,6 +221,10 @@
 
       <section class="panel">
         <textarea id="inputText" placeholder="Paste text to read..."></textarea>
+        <div class="file-input">
+          <label for="fileInput">Load text or EPUB file</label>
+          <input type="file" id="fileInput" accept=".txt,.epub,text/plain,application/epub+zip" />
+        </div>
         <div class="controls">
           <div class="control">
             <label for="wpm">Words per minute</label>
@@ -227,6 +248,7 @@
           <button id="start">Start</button>
           <button id="pause" class="secondary">Pause</button>
           <button id="reset" class="secondary">Reset</button>
+          <button id="fullscreen" class="secondary">Fullscreen</button>
         </div>
         <div class="stats">
           <span id="speedDisplay">Speed: 0 wpm</span>
@@ -247,13 +269,15 @@
         </div>
         <div class="hotkeys">
           <strong>Hotkeys:</strong>
-          Space = start/pause · ↑/↓ = WPM ±10 · ←/→ = chunk size ±1 · R = reset
+          Space = start/pause · ↑/↓ = WPM ±10 · ←/→ = chunk size ±1 · R = reset · F = fullscreen
         </div>
       </section>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script>
       const inputText = document.getElementById("inputText");
+      const fileInput = document.getElementById("fileInput");
       const wpmInput = document.getElementById("wpm");
       const chunkInput = document.getElementById("chunk");
       const themeSelect = document.getElementById("theme");
@@ -263,6 +287,7 @@
       const startButton = document.getElementById("start");
       const pauseButton = document.getElementById("pause");
       const resetButton = document.getElementById("reset");
+      const fullscreenButton = document.getElementById("fullscreen");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
       const speedDisplay = document.getElementById("speedDisplay");
@@ -336,6 +361,80 @@
         const totalFrames = Math.ceil(words.length / Number(chunkInput.value));
         frameCount.textContent = `${totalFrames} frames`;
         remaining.textContent = `${Math.max(0, words.length - frameIndex * chunkInput.value)} remaining`;
+      }
+
+      function setFullscreen(active) {
+        document.body.classList.toggle("fullscreen", active);
+        fullscreenButton.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+      }
+
+      function toggleFullscreen() {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.();
+        } else {
+          document.documentElement.requestFullscreen?.();
+        }
+      }
+
+      async function loadTextFile(file) {
+        const text = await file.text();
+        inputText.value = text;
+        saveSettings();
+        refreshWords();
+      }
+
+      async function loadEpubFile(file) {
+        if (!window.JSZip) {
+          alert("EPUB loading requires JSZip. Please check your connection and try again.");
+          return;
+        }
+        const zip = await JSZip.loadAsync(file);
+        const containerEntry = zip.file("META-INF/container.xml");
+        if (!containerEntry) {
+          alert("Unable to find EPUB container metadata.");
+          return;
+        }
+        const containerXml = await containerEntry.async("text");
+        const containerDoc = new DOMParser().parseFromString(containerXml, "application/xml");
+        const rootfile = containerDoc.querySelector("rootfile");
+        const opfPath = rootfile?.getAttribute("full-path");
+        if (!opfPath) {
+          alert("Unable to locate EPUB package file.");
+          return;
+        }
+        const opfEntry = zip.file(opfPath);
+        if (!opfEntry) {
+          alert("EPUB package file not found in archive.");
+          return;
+        }
+        const opfXml = await opfEntry.async("text");
+        const opfDoc = new DOMParser().parseFromString(opfXml, "application/xml");
+        const manifest = new Map();
+        opfDoc.querySelectorAll("manifest > item").forEach((item) => {
+          const id = item.getAttribute("id");
+          const href = item.getAttribute("href");
+          if (id && href) {
+            manifest.set(id, href);
+          }
+        });
+        const spineIds = Array.from(opfDoc.querySelectorAll("spine > itemref"))
+          .map((item) => item.getAttribute("idref"))
+          .filter(Boolean);
+        const basePath = opfPath.includes("/") ? opfPath.slice(0, opfPath.lastIndexOf("/") + 1) : "";
+        const chapters = [];
+        for (const id of spineIds) {
+          const href = manifest.get(id);
+          if (!href) continue;
+          const entry = zip.file(`${basePath}${href}`);
+          if (!entry) continue;
+          const chapterXml = await entry.async("text");
+          const chapterDoc = new DOMParser().parseFromString(chapterXml, "text/html");
+          const chapterText = chapterDoc.body?.textContent || "";
+          chapters.push(chapterText.replace(/\s+/g, " ").trim());
+        }
+        inputText.value = chapters.filter(Boolean).join("\n\n");
+        saveSettings();
+        refreshWords();
       }
 
       function computeOrpIndex(text) {
@@ -460,6 +559,23 @@
         saveSettings();
       });
 
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        try {
+          if (file.name.toLowerCase().endsWith(".epub")) {
+            await loadEpubFile(file);
+          } else {
+            await loadTextFile(file);
+          }
+        } catch (error) {
+          console.error(error);
+          alert("Unable to load file. Please try another file.");
+        } finally {
+          fileInput.value = "";
+        }
+      });
+
       startButton.addEventListener("click", () => {
         refreshWords();
         startPlayback();
@@ -476,6 +592,10 @@
       resetButton.addEventListener("click", () => {
         refreshWords();
         resetPlayback();
+      });
+
+      fullscreenButton.addEventListener("click", () => {
+        toggleFullscreen();
       });
 
       document.addEventListener("keydown", (event) => {
@@ -513,6 +633,13 @@
         if (event.key.toLowerCase() === "r") {
           resetPlayback();
         }
+        if (event.key.toLowerCase() === "f") {
+          toggleFullscreen();
+        }
+      });
+
+      document.addEventListener("fullscreenchange", () => {
+        setFullscreen(Boolean(document.fullscreenElement));
       });
 
       const settings = loadSettings();
