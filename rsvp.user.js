@@ -44,6 +44,7 @@
 
   function tokenize(text) {
     return text
+      .replace(/([.!?,;:])(?=\S)/g, "$1 ")
       .replace(/\s+/g, " ")
       .trim()
       .split(" ")
