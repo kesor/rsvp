@@ -28,6 +28,16 @@
     { pattern: /[,:;]$/, multiplier: 1.4 },
   ];
 
+  function getComplexWordMultiplier(frameWords) {
+    if (!frameWords.length) return 1;
+    const maxLength = Math.max(
+      ...frameWords.map((word) => word.replace(/[^A-Za-z0-9%]/g, "").length)
+    );
+    if (maxLength >= 13) return 1.6;
+    if (maxLength >= 10) return 1.3;
+    return 1;
+  }
+
   function loadSettings() {
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (!stored) return defaults;
@@ -120,7 +130,8 @@
     const base = 60000 / settings.wpm;
     const lastWord = frameWords[frameWords.length - 1] || "";
     const multiplier = pauseMultipliers.find((entry) => entry.pattern.test(lastWord))?.multiplier || 1;
-    return base * multiplier;
+    const complexityMultiplier = getComplexWordMultiplier(frameWords);
+    return base * multiplier * complexityMultiplier;
   }
 
   function stopPlayback() {
