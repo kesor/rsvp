@@ -42,9 +42,29 @@
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }
 
+  function normalizePunctuation(text) {
+    return text.replace(/([.!?,;:])(?=\S)/g, (match, punct, offset, source) => {
+      const prev = source[offset - 1] || "";
+      const next = source[offset + 1] || "";
+      const next2 = source[offset + 2] || "";
+
+      if (punct === ".") {
+        const isDecimal = /\d/.test(prev) && /\d/.test(next);
+        const isInitials = /[A-Za-z]/.test(prev) && /[A-Za-z]/.test(next) && next2 === ".";
+        if (isDecimal || isInitials) return punct;
+      }
+
+      if (punct === ",") {
+        const isNumber = /\d/.test(prev) && /\d/.test(next);
+        if (isNumber) return punct;
+      }
+
+      return `${punct} `;
+    });
+  }
+
   function tokenize(text) {
-    return text
-      .replace(/([.!?,;:])(?=\S)/g, "$1 ")
+    return normalizePunctuation(text)
       .replace(/\s+/g, " ")
       .trim()
       .split(" ")
