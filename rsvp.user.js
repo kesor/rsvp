@@ -299,26 +299,25 @@
       event.preventDefault();
       togglePlayback(settings);
     }
-    if (event.code === "ArrowUp") {
+    if (event.key === "]") {
       settings.wpm = Math.min(900, settings.wpm + 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
     }
-    if (event.code === "ArrowDown") {
+    if (event.key === "[") {
       settings.wpm = Math.max(100, settings.wpm - 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
     }
     if (event.code === "ArrowRight") {
-      settings.chunk = Math.min(4, settings.chunk + 1);
-      saveSettings(settings);
-      frameIndex = 0;
-      renderPivot(getFrameWords(settings));
+      const totalFrames = Math.ceil(words.length / settings.chunk);
+      if (totalFrames > 0) {
+        frameIndex = Math.min(totalFrames - 1, frameIndex + 1);
+        renderPivot(getFrameWords(settings));
+      }
     }
     if (event.code === "ArrowLeft") {
-      settings.chunk = Math.max(1, settings.chunk - 1);
-      saveSettings(settings);
-      frameIndex = 0;
+      frameIndex = Math.max(0, frameIndex - 1);
       renderPivot(getFrameWords(settings));
     }
     if (event.key.toLowerCase() === "r") {

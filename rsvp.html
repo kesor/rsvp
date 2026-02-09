@@ -269,7 +269,7 @@
         </div>
         <div class="hotkeys">
           <strong>Hotkeys:</strong>
-          Space = start/pause · ↑/↓ = WPM ±10 · ←/→ = chunk size ±1 · R = reset · F = fullscreen
+          Space = start/pause · [ / ] = WPM ±10 · ←/→ = back/forward · R = reset · F = fullscreen
         </div>
       </section>
     </div>
@@ -629,27 +629,32 @@
             startPlayback();
           }
         }
-        if (event.code === "ArrowUp") {
+        if (event.key === "]") {
           wpmInput.value = Math.min(900, Number(wpmInput.value) + 10);
           updateControlLabels();
           saveSettings();
         }
-        if (event.code === "ArrowDown") {
+        if (event.key === "[") {
           wpmInput.value = Math.max(100, Number(wpmInput.value) - 10);
           updateControlLabels();
           saveSettings();
         }
         if (event.code === "ArrowRight") {
-          chunkInput.value = Math.min(4, Number(chunkInput.value) + 1);
-          updateControlLabels();
-          saveSettings();
-          refreshWords();
+          const totalFrames = Math.ceil(words.length / Number(chunkInput.value));
+          if (frameIndex < totalFrames - 1) {
+            frameIndex = Math.min(totalFrames - 1, frameIndex + 1);
+            renderPivot(getFrameWords());
+            updateProgress();
+            updateStats();
+          }
         }
         if (event.code === "ArrowLeft") {
-          chunkInput.value = Math.max(1, Number(chunkInput.value) - 1);
-          updateControlLabels();
-          saveSettings();
-          refreshWords();
+          if (frameIndex > 0) {
+            frameIndex = Math.max(0, frameIndex - 1);
+            renderPivot(getFrameWords());
+            updateProgress();
+            updateStats();
+          }
         }
         if (event.key.toLowerCase() === "r") {
           resetPlayback();
