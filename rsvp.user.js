@@ -114,7 +114,20 @@
     const pre = combined.slice(0, orpIndex);
     const orpChar = combined.charAt(orpIndex) || "";
     const post = combined.slice(orpIndex + 1);
-    pivotWord.innerHTML = `${pre}<span class="rsvp-orpc">${orpChar}</span>${post}`;
+    
+    // Clear and rebuild with DOM methods to avoid innerHTML parsing
+    pivotWord.textContent = "";
+    if (pre) {
+      pivotWord.appendChild(document.createTextNode(pre));
+    }
+    const orpSpan = document.createElement("span");
+    orpSpan.className = "rsvp-orpc";
+    orpSpan.textContent = orpChar;
+    pivotWord.appendChild(orpSpan);
+    if (post) {
+      pivotWord.appendChild(document.createTextNode(post));
+    }
+    
     const orpX = measureTextWidth(pre, pivotWord);
     pivotWord.style.transform = `translateX(calc(50% - ${orpX}px))`;
   }
@@ -171,7 +184,8 @@
     renderPivot([""]);
   }
 
-  function step(settings) {
+  function step() {
+    const settings = loadSettings();
     if (frameIndex * settings.chunk >= words.length) {
       stopPlayback();
       return;
@@ -181,20 +195,20 @@
     speakFrame(frameWords, settings);
     frameIndex += 1;
     const delay = getFrameDelay(frameWords, settings);
-    timerId = window.setTimeout(() => step(settings), delay);
+    timerId = window.setTimeout(() => step(), delay);
   }
 
-  function startPlayback(settings) {
+  function startPlayback() {
     if (timerId) return;
     if (words.length === 0) return;
-    step(settings);
+    step();
   }
 
-  function togglePlayback(settings) {
+  function togglePlayback() {
     if (timerId) {
       stopPlayback();
     } else {
-      startPlayback(settings);
+      startPlayback();
     }
   }
 
@@ -344,7 +358,7 @@
 
     if (event.code === "Space") {
       event.preventDefault();
-      togglePlayback(settings);
+      togglePlayback();
     }
     if (event.key === "]") {
       settings.wpm = Math.min(900, settings.wpm + 10);

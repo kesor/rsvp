@@ -531,7 +531,18 @@
         const orpChar = combined.charAt(orpIndex) || "";
         const post = combined.slice(orpIndex + 1);
 
-        pivotWord.innerHTML = `${pre}<span class="orpc">${orpChar}</span>${post}`;
+        // Clear and rebuild with DOM methods to avoid innerHTML parsing
+        pivotWord.textContent = "";
+        if (pre) {
+          pivotWord.appendChild(document.createTextNode(pre));
+        }
+        const orpSpan = document.createElement("span");
+        orpSpan.className = "orpc";
+        orpSpan.textContent = orpChar;
+        pivotWord.appendChild(orpSpan);
+        if (post) {
+          pivotWord.appendChild(document.createTextNode(post));
+        }
 
         const orpX = measureTextWidth(pre, pivotWord);
         pivotWord.style.transform = `translateX(calc(50% - ${orpX}px))`;
@@ -565,9 +576,9 @@
         const frameWords = getFrameWords();
         renderPivot(frameWords);
         speakFrame(frameWords);
+        frameIndex += 1;
         updateProgress();
         updateStats();
-        frameIndex += 1;
         const delay = getFrameDelay(frameWords);
         timerId = window.setTimeout(step, delay);
       }
