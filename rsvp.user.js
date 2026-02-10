@@ -23,6 +23,7 @@
   let frameIndex = 0;
   let timerId = null;
   let audioEnabled = false;
+  let isPaused = false;
 
   const pauseMultipliers = [
     { pattern: /[.!?]$/, multiplier: 2.2 },
@@ -144,12 +145,21 @@
     if (!audioEnabled || !("speechSynthesis" in window)) return;
     const text = frameWords.join(" ").trim();
     if (!text) return;
-    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = getSpeechRate(settings);
     utterance.pitch = 1;
     utterance.volume = 1;
     window.speechSynthesis.speak(utterance);
+  }
+
+  function pauseAudio() {
+    if (!("speechSynthesis" in window) || !audioEnabled) return;
+    window.speechSynthesis.pause();
+  }
+
+  function resumeAudio() {
+    if (!("speechSynthesis" in window) || !audioEnabled) return;
+    window.speechSynthesis.resume();
   }
 
   function stopAudio() {
@@ -175,7 +185,17 @@
       clearTimeout(timerId);
       timerId = null;
     }
+    isPaused = false;
     stopAudio();
+  }
+
+  function pausePlayback() {
+    if (timerId) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+    isPaused = true;
+    pauseAudio();
   }
 
   function resetPlayback() {
@@ -185,6 +205,7 @@
   }
 
   function step() {
+    if (isPaused) return;
     const settings = loadSettings();
     if (frameIndex * settings.chunk >= words.length) {
       stopPlayback();
@@ -201,12 +222,14 @@
   function startPlayback() {
     if (timerId) return;
     if (words.length === 0) return;
+    isPaused = false;
+    resumeAudio();
     step();
   }
 
   function togglePlayback() {
     if (timerId) {
-      stopPlayback();
+      pausePlayback();
     } else {
       startPlayback();
     }
