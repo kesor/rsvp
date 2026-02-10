@@ -14,6 +14,7 @@
   const defaults = {
     wpm: 300,
     chunk: 1,
+    volume: 1,
   };
 
   let overlay = null;
@@ -44,7 +45,9 @@
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (!stored) return defaults;
     try {
-      return { ...defaults, ...JSON.parse(stored) };
+      const parsed = { ...defaults, ...JSON.parse(stored) };
+      parsed.volume = clampVolume(parsed.volume);
+      return parsed;
     } catch (error) {
       return defaults;
     }
@@ -137,6 +140,21 @@
     speedDisplay.textContent = `${settings.wpm} wpm`;
   }
 
+  function formatVolumePercent(value) {
+    return `${Math.round(value * 100)}%`;
+  }
+
+  function updateAudioDisplay(settings) {
+    const audioDisplay = overlay?.querySelector(".rsvp-audio");
+    if (!audioDisplay) return;
+    const status = audioEnabled ? "On" : "Off";
+    audioDisplay.textContent = `Audio: ${status} (${formatVolumePercent(settings.volume)})`;
+  }
+
+  function clampVolume(volume) {
+    return Math.max(0, Math.min(1, volume));
+  }
+
   function getSpeechRate(settings) {
     return Math.max(0.6, Math.min(3.5, settings.wpm / 180));
   }
@@ -154,7 +172,7 @@
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = getSpeechRate(settings);
     utterance.pitch = 1;
-    utterance.volume = 1;
+    utterance.volume = clampVolume(settings.volume);
     window.speechSynthesis.speak(utterance);
   }
 
@@ -163,9 +181,17 @@
     window.speechSynthesis.pause();
   }
 
-  function resumeAudio() {
-    if (!("speechSynthesis" in window) || !audioEnabled) return;
-    window.speechSynthesis.resume();
+  function resumeAudio(settings) {
+    if (!("speechSynthesis" in window) || !audioEnabled) return false;
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      return true;
+    }
+    if (window.speechSynthesis.speaking) {
+      return true;
+    }
+    startSpeechFromFrame(settings);
+    return false;
   }
 
   function syncAudioToFrame(settings) {
@@ -235,7 +261,10 @@
     const wasPaused = isPaused;
     isPaused = false;
     if (wasPaused) {
-      resumeAudio();
+      const resumed = resumeAudio(settings);
+      if (!resumed) {
+        syncAudioToFrame(settings);
+      }
     } else {
       syncAudioToFrame(settings);
     }
@@ -354,8 +383,7 @@
 
     pivotWord = overlay.querySelector(".rsvp-pivot-word");
     speedDisplay = overlay.querySelector(".rsvp-speed");
-    const audioDisplay = overlay.querySelector(".rsvp-audio");
-    audioDisplay.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
+    updateAudioDisplay(settings);
     updateSpeedDisplay(settings);
   }
 
@@ -439,13 +467,26 @@
     }
     if (event.key.toLowerCase() === "s") {
       audioEnabled = !audioEnabled;
-      const audioDisplay = overlay?.querySelector(".rsvp-audio");
-      if (audioDisplay) {
-        audioDisplay.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
-      }
+      updateAudioDisplay(settings);
       if (!audioEnabled) {
         stopAudio();
       } else if (!isPaused) {
+        syncAudioToFrame(settings);
+      }
+    }
+    if (event.key === "=" || event.key === "+") {
+      settings.volume = clampVolume(settings.volume + 0.05);
+      saveSettings(settings);
+      updateAudioDisplay(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
+    }
+    if (event.key === "-" || event.key === "_") {
+      settings.volume = clampVolume(settings.volume - 0.05);
+      saveSettings(settings);
+      updateAudioDisplay(settings);
+      if (audioEnabled && !isPaused) {
         syncAudioToFrame(settings);
       }
     }
