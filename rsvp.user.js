@@ -165,8 +165,17 @@
     if (!("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();
     if (!voices.length) return null;
-    const nonEspeak = voices.find((voice) => !/espeak/i.test(voice.name));
-    return nonEspeak || voices[0] || null;
+
+    const lessacVoice = voices.find((voice) => /en_US-lessac-medium/i.test(voice.name));
+    if (lessacVoice) return lessacVoice;
+
+    const englishDefault = voices.find((voice) => /^en([_-]|$)/i.test(voice.lang || "") && voice.default);
+    if (englishDefault) return englishDefault;
+
+    const englishVoice = voices.find((voice) => /^en([_-]|$)/i.test(voice.lang || ""));
+    if (englishVoice) return englishVoice;
+
+    return null;
   }
 
   function getPreferredVoice() {
@@ -192,6 +201,9 @@
     const voice = getPreferredVoice();
     if (voice) {
       utterance.voice = voice;
+      if (voice.lang) {
+        utterance.lang = voice.lang;
+      }
     }
     window.speechSynthesis.speak(utterance);
   }
