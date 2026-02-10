@@ -25,6 +25,7 @@
   let timerId = null;
   let audioEnabled = false;
   let isPaused = false;
+  let preferredVoice = null;
 
   const pauseMultipliers = [
     { pattern: /[.!?]$/, multiplier: 2.2 },
@@ -156,7 +157,22 @@
   }
 
   function getSpeechRate(settings) {
-    return Math.max(0.6, Math.min(3.5, settings.wpm / 180));
+    const tunedRate = settings.wpm / 140;
+    return Math.max(0.8, Math.min(3.5, tunedRate));
+  }
+
+  function choosePreferredVoice() {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    const nonEspeak = voices.find((voice) => !/espeak/i.test(voice.name));
+    return nonEspeak || voices[0] || null;
+  }
+
+  function getPreferredVoice() {
+    if (preferredVoice) return preferredVoice;
+    preferredVoice = choosePreferredVoice();
+    return preferredVoice;
   }
 
   function getRemainingSpeechText(settings) {
@@ -173,6 +189,10 @@
     utterance.rate = getSpeechRate(settings);
     utterance.pitch = 1;
     utterance.volume = clampVolume(settings.volume);
+    const voice = getPreferredVoice();
+    if (voice) {
+      utterance.voice = voice;
+    }
     window.speechSynthesis.speak(utterance);
   }
 
@@ -381,6 +401,13 @@
     document.head.appendChild(style);
     document.body.appendChild(overlay);
 
+    if ("speechSynthesis" in window) {
+      preferredVoice = choosePreferredVoice();
+      window.speechSynthesis.onvoiceschanged = () => {
+        preferredVoice = choosePreferredVoice();
+      };
+    }
+
     pivotWord = overlay.querySelector(".rsvp-pivot-word");
     speedDisplay = overlay.querySelector(".rsvp-speed");
     updateAudioDisplay(settings);
@@ -426,7 +453,7 @@
       event.preventDefault();
       togglePlayback();
     }
-    if (event.key === "]") {
+    if (event.key.toLowerCase() === "d") {
       settings.wpm = Math.min(900, settings.wpm + 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
@@ -434,7 +461,7 @@
         syncAudioToFrame(settings);
       }
     }
-    if (event.key === "[") {
+    if (event.key.toLowerCase() === "s") {
       settings.wpm = Math.max(100, settings.wpm - 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
@@ -465,7 +492,7 @@
     if (event.key.toLowerCase() === "f") {
       toggleFullscreen();
     }
-    if (event.key.toLowerCase() === "s") {
+    if (event.key.toLowerCase() === "a") {
       audioEnabled = !audioEnabled;
       updateAudioDisplay(settings);
       if (!audioEnabled) {
@@ -474,7 +501,8 @@
         syncAudioToFrame(settings);
       }
     }
-    if (event.key === "=" || event.key === "+") {
+    if (event.code === "ArrowUp") {
+      event.preventDefault();
       settings.volume = clampVolume(settings.volume + 0.05);
       saveSettings(settings);
       updateAudioDisplay(settings);
@@ -482,7 +510,8 @@
         syncAudioToFrame(settings);
       }
     }
-    if (event.key === "-" || event.key === "_") {
+    if (event.code === "ArrowDown") {
+      event.preventDefault();
       settings.volume = clampVolume(settings.volume - 0.05);
       saveSettings(settings);
       updateAudioDisplay(settings);
