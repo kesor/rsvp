@@ -22,6 +22,7 @@
   let words = [];
   let frameIndex = 0;
   let timerId = null;
+  let audioEnabled = false;
 
   const pauseMultipliers = [
     { pattern: /[.!?]$/, multiplier: 2.2 },
@@ -113,13 +114,48 @@
     const pre = combined.slice(0, orpIndex);
     const orpChar = combined.charAt(orpIndex) || "";
     const post = combined.slice(orpIndex + 1);
-    pivotWord.innerHTML = `${pre}<span class="rsvp-orpc">${orpChar}</span>${post}`;
+    
+    // Clear and rebuild with DOM methods to avoid innerHTML parsing
+    pivotWord.textContent = "";
+    if (pre) {
+      pivotWord.appendChild(document.createTextNode(pre));
+    }
+    const orpSpan = document.createElement("span");
+    orpSpan.className = "rsvp-orpc";
+    orpSpan.textContent = orpChar;
+    pivotWord.appendChild(orpSpan);
+    if (post) {
+      pivotWord.appendChild(document.createTextNode(post));
+    }
+    
     const orpX = measureTextWidth(pre, pivotWord);
     pivotWord.style.transform = `translateX(calc(50% - ${orpX}px))`;
   }
 
   function updateSpeedDisplay(settings) {
     speedDisplay.textContent = `${settings.wpm} wpm`;
+  }
+
+  function getSpeechRate(settings) {
+    return Math.max(0.6, Math.min(3.5, settings.wpm / 180));
+  }
+
+  function speakFrame(frameWords, settings) {
+    if (!audioEnabled || !("speechSynthesis" in window)) return;
+    const text = frameWords.join(" ").trim();
+    if (!text) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = getSpeechRate(settings);
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopAudio() {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
   }
 
   function getFrameWords(settings) {
@@ -139,6 +175,7 @@
       clearTimeout(timerId);
       timerId = null;
     }
+    stopAudio();
   }
 
   function resetPlayback() {
@@ -147,29 +184,31 @@
     renderPivot([""]);
   }
 
-  function step(settings) {
+  function step() {
+    const settings = loadSettings();
     if (frameIndex * settings.chunk >= words.length) {
       stopPlayback();
       return;
     }
     const frameWords = getFrameWords(settings);
     renderPivot(frameWords);
+    speakFrame(frameWords, settings);
     frameIndex += 1;
     const delay = getFrameDelay(frameWords, settings);
-    timerId = window.setTimeout(() => step(settings), delay);
+    timerId = window.setTimeout(() => step(), delay);
   }
 
-  function startPlayback(settings) {
+  function startPlayback() {
     if (timerId) return;
     if (words.length === 0) return;
-    step(settings);
+    step();
   }
 
-  function togglePlayback(settings) {
+  function togglePlayback() {
     if (timerId) {
       stopPlayback();
     } else {
-      startPlayback(settings);
+      startPlayback();
     }
   }
 
@@ -204,6 +243,7 @@
       <div class="rsvp-pivot">
         <span class="rsvp-pivot-word"></span>
         <span class="rsvp-speed"></span>
+        <span class="rsvp-audio">Audio: Off</span>
       </div>
     `;
 
@@ -261,6 +301,14 @@
         font-size: 12px;
         color: rgba(183, 192, 204, 0.6);
       }
+
+      .rsvp-audio {
+        position: absolute;
+        bottom: 6px;
+        left: 12px;
+        font-size: 12px;
+        color: rgba(183, 192, 204, 0.6);
+      }
     `;
 
     document.head.appendChild(style);
@@ -268,6 +316,8 @@
 
     pivotWord = overlay.querySelector(".rsvp-pivot-word");
     speedDisplay = overlay.querySelector(".rsvp-speed");
+    const audioDisplay = overlay.querySelector(".rsvp-audio");
+    audioDisplay.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
     updateSpeedDisplay(settings);
   }
 
@@ -308,7 +358,7 @@
 
     if (event.code === "Space") {
       event.preventDefault();
-      togglePlayback(settings);
+      togglePlayback();
     }
     if (event.key === "]") {
       settings.wpm = Math.min(900, settings.wpm + 10);
@@ -336,6 +386,16 @@
     }
     if (event.key.toLowerCase() === "f") {
       toggleFullscreen();
+    }
+    if (event.key.toLowerCase() === "s") {
+      audioEnabled = !audioEnabled;
+      const audioDisplay = overlay?.querySelector(".rsvp-audio");
+      if (audioDisplay) {
+        audioDisplay.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
+      }
+      if (!audioEnabled) {
+        stopAudio();
+      }
     }
     if (event.code === "Escape") {
       removeOverlay();

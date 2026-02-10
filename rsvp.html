@@ -249,6 +249,7 @@
           <button id="pause" class="secondary">Pause</button>
           <button id="reset" class="secondary">Reset</button>
           <button id="fullscreen" class="secondary">Fullscreen</button>
+          <button id="audioToggle" class="secondary">Audio: Off</button>
         </div>
         <div class="stats">
           <span id="speedDisplay">Speed: 0 wpm</span>
@@ -269,7 +270,7 @@
         </div>
         <div class="hotkeys">
           <strong>Hotkeys:</strong>
-          Space = start/pause · [ / ] = WPM ±10 · ←/→ = back/forward · R = reset · F = fullscreen
+          Space = start/pause · [ / ] = WPM ±10 · ←/→ = back/forward · R = reset · F = fullscreen · S = audio
         </div>
       </section>
     </div>
@@ -288,6 +289,7 @@
       const pauseButton = document.getElementById("pause");
       const resetButton = document.getElementById("reset");
       const fullscreenButton = document.getElementById("fullscreen");
+      const audioToggleButton = document.getElementById("audioToggle");
       const progressFill = document.getElementById("progressFill");
       const progressText = document.getElementById("progressText");
       const speedDisplay = document.getElementById("speedDisplay");
@@ -298,6 +300,7 @@
       let words = [];
       let frameIndex = 0;
       let timerId = null;
+      let audioEnabled = false;
 
       const SETTINGS_KEY = "rsvp-settings";
 
@@ -356,6 +359,33 @@
         wpmValue.textContent = `${wpmInput.value} wpm`;
         chunkValue.textContent = `${chunkInput.value} words`;
         speedDisplay.textContent = `Speed: ${wpmInput.value} wpm`;
+      }
+
+      function updateAudioLabel() {
+        audioToggleButton.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
+      }
+
+      function getSpeechRate() {
+        const wpm = Number(wpmInput.value);
+        return Math.max(0.6, Math.min(3.5, wpm / 180));
+      }
+
+      function speakFrame(frameWords) {
+        if (!audioEnabled || !("speechSynthesis" in window)) return;
+        const text = frameWords.join(" ").trim();
+        if (!text) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = getSpeechRate();
+        utterance.pitch = 1;
+        utterance.volume = 1;
+        window.speechSynthesis.speak(utterance);
+      }
+
+      function stopAudio() {
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+        }
       }
 
       function normalizePunctuation(text) {
@@ -501,7 +531,18 @@
         const orpChar = combined.charAt(orpIndex) || "";
         const post = combined.slice(orpIndex + 1);
 
-        pivotWord.innerHTML = `${pre}<span class="orpc">${orpChar}</span>${post}`;
+        // Clear and rebuild with DOM methods to avoid innerHTML parsing
+        pivotWord.textContent = "";
+        if (pre) {
+          pivotWord.appendChild(document.createTextNode(pre));
+        }
+        const orpSpan = document.createElement("span");
+        orpSpan.className = "orpc";
+        orpSpan.textContent = orpChar;
+        pivotWord.appendChild(orpSpan);
+        if (post) {
+          pivotWord.appendChild(document.createTextNode(post));
+        }
 
         const orpX = measureTextWidth(pre, pivotWord);
         pivotWord.style.transform = `translateX(calc(50% - ${orpX}px))`;
@@ -534,9 +575,10 @@
         }
         const frameWords = getFrameWords();
         renderPivot(frameWords);
+        speakFrame(frameWords);
+        frameIndex += 1;
         updateProgress();
         updateStats();
-        frameIndex += 1;
         const delay = getFrameDelay(frameWords);
         timerId = window.setTimeout(step, delay);
       }
@@ -552,6 +594,7 @@
           clearTimeout(timerId);
           timerId = null;
         }
+        stopAudio();
       }
 
       function resetPlayback() {
@@ -630,6 +673,14 @@
         toggleFullscreen();
       });
 
+      audioToggleButton.addEventListener("click", () => {
+        audioEnabled = !audioEnabled;
+        updateAudioLabel();
+        if (!audioEnabled) {
+          stopAudio();
+        }
+      });
+
       document.addEventListener("keydown", (event) => {
         if (event.target === inputText) return;
         if (event.code === "Space") {
@@ -673,6 +724,13 @@
         if (event.key.toLowerCase() === "f") {
           toggleFullscreen();
         }
+        if (event.key.toLowerCase() === "s") {
+          audioEnabled = !audioEnabled;
+          updateAudioLabel();
+          if (!audioEnabled) {
+            stopAudio();
+          }
+        }
       });
 
       document.addEventListener("fullscreenchange", () => {
@@ -681,6 +739,7 @@
 
       const settings = loadSettings();
       applySettings(settings);
+      updateAudioLabel();
       refreshWords();
     </script>
   </body>
