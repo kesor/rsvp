@@ -24,6 +24,8 @@
   let timerId = null;
   let audioEnabled = false;
   let isPaused = false;
+  let audioCursor = 0;
+  let queuedUtterances = 0;
 
   const pauseMultipliers = [
     { pattern: /[.!?]$/, multiplier: 2.2 },
@@ -141,15 +143,33 @@
     return Math.max(0.6, Math.min(3.5, settings.wpm / 180));
   }
 
-  function speakFrame(frameWords, settings) {
+  function queueAudioBatch(settings) {
     if (!audioEnabled || !("speechSynthesis" in window)) return;
-    const text = frameWords.join(" ").trim();
+    if (audioCursor >= words.length) return;
+
+    const batchSize = Math.max(6, settings.chunk * 8);
+    const text = words.slice(audioCursor, Math.min(words.length, audioCursor + batchSize)).join(" ").trim();
     if (!text) return;
+    audioCursor += batchSize;
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = getSpeechRate(settings);
     utterance.pitch = 1;
     utterance.volume = 1;
+    queuedUtterances += 1;
+    utterance.onend = utterance.onerror = () => {
+      queuedUtterances = Math.max(0, queuedUtterances - 1);
+      const latestSettings = loadSettings();
+      ensureAudioQueue(latestSettings);
+    };
     window.speechSynthesis.speak(utterance);
+  }
+
+  function ensureAudioQueue(settings) {
+    if (!audioEnabled || !("speechSynthesis" in window) || isPaused) return;
+    while (queuedUtterances < 3 && audioCursor < words.length) {
+      queueAudioBatch(settings);
+    }
   }
 
   function pauseAudio() {
@@ -162,10 +182,20 @@
     window.speechSynthesis.resume();
   }
 
+  function syncAudioToFrame(settings) {
+    if (!("speechSynthesis" in window) || !audioEnabled) return;
+    window.speechSynthesis.cancel();
+    queuedUtterances = 0;
+    audioCursor = frameIndex * settings.chunk;
+    ensureAudioQueue(settings);
+  }
+
   function stopAudio() {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    queuedUtterances = 0;
+    audioCursor = frameIndex * loadSettings().chunk;
   }
 
   function getFrameWords(settings) {
@@ -213,7 +243,7 @@
     }
     const frameWords = getFrameWords(settings);
     renderPivot(frameWords);
-    speakFrame(frameWords, settings);
+    ensureAudioQueue(settings);
     frameIndex += 1;
     const delay = getFrameDelay(frameWords, settings);
     timerId = window.setTimeout(() => step(), delay);
@@ -222,8 +252,15 @@
   function startPlayback() {
     if (timerId) return;
     if (words.length === 0) return;
+    const settings = loadSettings();
+    const wasPaused = isPaused;
     isPaused = false;
-    resumeAudio();
+    if (wasPaused) {
+      resumeAudio();
+      ensureAudioQueue(settings);
+    } else {
+      syncAudioToFrame(settings);
+    }
     step();
   }
 
@@ -359,6 +396,8 @@
     const text = extractArticleText();
     words = tokenize(text);
     frameIndex = 0;
+    audioCursor = 0;
+    queuedUtterances = 0;
     renderPivot(getFrameWords(settings));
     startPlayback(settings);
   }
@@ -387,22 +426,34 @@
       settings.wpm = Math.min(900, settings.wpm + 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
     }
     if (event.key === "[") {
       settings.wpm = Math.max(100, settings.wpm - 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
     }
     if (event.code === "ArrowRight") {
       const totalFrames = Math.ceil(words.length / settings.chunk);
       if (totalFrames > 0) {
         frameIndex = Math.min(totalFrames - 1, frameIndex + 1);
         renderPivot(getFrameWords(settings));
+        if (audioEnabled && !isPaused) {
+          syncAudioToFrame(settings);
+        }
       }
     }
     if (event.code === "ArrowLeft") {
       frameIndex = Math.max(0, frameIndex - 1);
       renderPivot(getFrameWords(settings));
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
     }
     if (event.key.toLowerCase() === "r") {
       resetPlayback();
@@ -418,6 +469,8 @@
       }
       if (!audioEnabled) {
         stopAudio();
+      } else if (!isPaused) {
+        syncAudioToFrame(settings);
       }
     }
     if (event.code === "Escape") {
