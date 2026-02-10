@@ -24,8 +24,6 @@
   let timerId = null;
   let audioEnabled = false;
   let isPaused = false;
-  let audioCursor = 0;
-  let queuedUtterances = 0;
 
   const pauseMultipliers = [
     { pattern: /[.!?]$/, multiplier: 2.2 },
@@ -143,33 +141,21 @@
     return Math.max(0.6, Math.min(3.5, settings.wpm / 180));
   }
 
-  function queueAudioBatch(settings) {
+  function getRemainingSpeechText(settings) {
+    const startIndex = frameIndex * settings.chunk;
+    return words.slice(startIndex).join(" ").trim();
+  }
+
+  function startSpeechFromFrame(settings) {
     if (!audioEnabled || !("speechSynthesis" in window)) return;
-    if (audioCursor >= words.length) return;
-
-    const batchSize = Math.max(6, settings.chunk * 8);
-    const text = words.slice(audioCursor, Math.min(words.length, audioCursor + batchSize)).join(" ").trim();
+    const text = getRemainingSpeechText(settings);
+    window.speechSynthesis.cancel();
     if (!text) return;
-    audioCursor += batchSize;
-
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = getSpeechRate(settings);
     utterance.pitch = 1;
     utterance.volume = 1;
-    queuedUtterances += 1;
-    utterance.onend = utterance.onerror = () => {
-      queuedUtterances = Math.max(0, queuedUtterances - 1);
-      const latestSettings = loadSettings();
-      ensureAudioQueue(latestSettings);
-    };
     window.speechSynthesis.speak(utterance);
-  }
-
-  function ensureAudioQueue(settings) {
-    if (!audioEnabled || !("speechSynthesis" in window) || isPaused) return;
-    while (queuedUtterances < 3 && audioCursor < words.length) {
-      queueAudioBatch(settings);
-    }
   }
 
   function pauseAudio() {
@@ -183,19 +169,13 @@
   }
 
   function syncAudioToFrame(settings) {
-    if (!("speechSynthesis" in window) || !audioEnabled) return;
-    window.speechSynthesis.cancel();
-    queuedUtterances = 0;
-    audioCursor = frameIndex * settings.chunk;
-    ensureAudioQueue(settings);
+    startSpeechFromFrame(settings);
   }
 
   function stopAudio() {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
-    queuedUtterances = 0;
-    audioCursor = frameIndex * loadSettings().chunk;
   }
 
   function getFrameWords(settings) {
@@ -243,7 +223,6 @@
     }
     const frameWords = getFrameWords(settings);
     renderPivot(frameWords);
-    ensureAudioQueue(settings);
     frameIndex += 1;
     const delay = getFrameDelay(frameWords, settings);
     timerId = window.setTimeout(() => step(), delay);
@@ -257,7 +236,6 @@
     isPaused = false;
     if (wasPaused) {
       resumeAudio();
-      ensureAudioQueue(settings);
     } else {
       syncAudioToFrame(settings);
     }
@@ -396,8 +374,6 @@
     const text = extractArticleText();
     words = tokenize(text);
     frameIndex = 0;
-    audioCursor = 0;
-    queuedUtterances = 0;
     renderPivot(getFrameWords(settings));
     startPlayback(settings);
   }
