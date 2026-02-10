@@ -14,6 +14,7 @@
   const defaults = {
     wpm: 300,
     chunk: 1,
+    volume: 1,
   };
 
   let overlay = null;
@@ -23,6 +24,8 @@
   let frameIndex = 0;
   let timerId = null;
   let audioEnabled = false;
+  let isPaused = false;
+  let preferredVoice = null;
 
   const pauseMultipliers = [
     { pattern: /[.!?]$/, multiplier: 2.2 },
@@ -43,7 +46,9 @@
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (!stored) return defaults;
     try {
-      return { ...defaults, ...JSON.parse(stored) };
+      const parsed = { ...defaults, ...JSON.parse(stored) };
+      parsed.volume = clampVolume(parsed.volume);
+      return parsed;
     } catch (error) {
       return defaults;
     }
@@ -136,20 +141,93 @@
     speedDisplay.textContent = `${settings.wpm} wpm`;
   }
 
-  function getSpeechRate(settings) {
-    return Math.max(0.6, Math.min(3.5, settings.wpm / 180));
+  function formatVolumePercent(value) {
+    return `${Math.round(value * 100)}%`;
   }
 
-  function speakFrame(frameWords, settings) {
+  function updateAudioDisplay(settings) {
+    const audioDisplay = overlay?.querySelector(".rsvp-audio");
+    if (!audioDisplay) return;
+    const status = audioEnabled ? "On" : "Off";
+    audioDisplay.textContent = `Audio: ${status} (${formatVolumePercent(settings.volume)})`;
+  }
+
+  function clampVolume(volume) {
+    return Math.max(0, Math.min(1, volume));
+  }
+
+  function getSpeechRate(settings) {
+    const tunedRate = settings.wpm / 140;
+    return Math.max(0.8, Math.min(3.5, tunedRate));
+  }
+
+  function choosePreferredVoice() {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+
+    const lessacVoice = voices.find((voice) => /en_US-lessac-medium/i.test(voice.name));
+    if (lessacVoice) return lessacVoice;
+
+    const englishDefault = voices.find((voice) => /^en([_-]|$)/i.test(voice.lang || "") && voice.default);
+    if (englishDefault) return englishDefault;
+
+    const englishVoice = voices.find((voice) => /^en([_-]|$)/i.test(voice.lang || ""));
+    if (englishVoice) return englishVoice;
+
+    return null;
+  }
+
+  function getPreferredVoice() {
+    if (preferredVoice) return preferredVoice;
+    preferredVoice = choosePreferredVoice();
+    return preferredVoice;
+  }
+
+  function getRemainingSpeechText(settings) {
+    const startIndex = frameIndex * settings.chunk;
+    return words.slice(startIndex).join(" ").trim();
+  }
+
+  function startSpeechFromFrame(settings) {
     if (!audioEnabled || !("speechSynthesis" in window)) return;
-    const text = frameWords.join(" ").trim();
-    if (!text) return;
+    const text = getRemainingSpeechText(settings);
     window.speechSynthesis.cancel();
+    if (!text) return;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = getSpeechRate(settings);
     utterance.pitch = 1;
-    utterance.volume = 1;
+    utterance.volume = clampVolume(settings.volume);
+    const voice = getPreferredVoice();
+    if (voice) {
+      utterance.voice = voice;
+      if (voice.lang) {
+        utterance.lang = voice.lang;
+      }
+    }
     window.speechSynthesis.speak(utterance);
+  }
+
+  function pauseAudio() {
+    if (!("speechSynthesis" in window) || !audioEnabled) return;
+    window.speechSynthesis.pause();
+  }
+
+  function resumeAudio(settings) {
+    if (!("speechSynthesis" in window) || !audioEnabled) return false;
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      return true;
+    }
+    if (window.speechSynthesis.speaking) {
+      return true;
+    }
+    startSpeechFromFrame(settings);
+    return false;
+  }
+
+  function syncAudioToFrame(settings) {
+    startSpeechFromFrame(settings);
   }
 
   function stopAudio() {
@@ -175,7 +253,17 @@
       clearTimeout(timerId);
       timerId = null;
     }
+    isPaused = false;
     stopAudio();
+  }
+
+  function pausePlayback() {
+    if (timerId) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+    isPaused = true;
+    pauseAudio();
   }
 
   function resetPlayback() {
@@ -185,6 +273,7 @@
   }
 
   function step() {
+    if (isPaused) return;
     const settings = loadSettings();
     if (frameIndex * settings.chunk >= words.length) {
       stopPlayback();
@@ -192,7 +281,6 @@
     }
     const frameWords = getFrameWords(settings);
     renderPivot(frameWords);
-    speakFrame(frameWords, settings);
     frameIndex += 1;
     const delay = getFrameDelay(frameWords, settings);
     timerId = window.setTimeout(() => step(), delay);
@@ -201,12 +289,23 @@
   function startPlayback() {
     if (timerId) return;
     if (words.length === 0) return;
+    const settings = loadSettings();
+    const wasPaused = isPaused;
+    isPaused = false;
+    if (wasPaused) {
+      const resumed = resumeAudio(settings);
+      if (!resumed) {
+        syncAudioToFrame(settings);
+      }
+    } else {
+      syncAudioToFrame(settings);
+    }
     step();
   }
 
   function togglePlayback() {
     if (timerId) {
-      stopPlayback();
+      pausePlayback();
     } else {
       startPlayback();
     }
@@ -314,10 +413,16 @@
     document.head.appendChild(style);
     document.body.appendChild(overlay);
 
+    if ("speechSynthesis" in window) {
+      preferredVoice = choosePreferredVoice();
+      window.speechSynthesis.onvoiceschanged = () => {
+        preferredVoice = choosePreferredVoice();
+      };
+    }
+
     pivotWord = overlay.querySelector(".rsvp-pivot-word");
     speedDisplay = overlay.querySelector(".rsvp-speed");
-    const audioDisplay = overlay.querySelector(".rsvp-audio");
-    audioDisplay.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
+    updateAudioDisplay(settings);
     updateSpeedDisplay(settings);
   }
 
@@ -360,26 +465,38 @@
       event.preventDefault();
       togglePlayback();
     }
-    if (event.key === "]") {
+    if (event.key.toLowerCase() === "d") {
       settings.wpm = Math.min(900, settings.wpm + 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
     }
-    if (event.key === "[") {
+    if (event.key.toLowerCase() === "s") {
       settings.wpm = Math.max(100, settings.wpm - 10);
       updateSpeedDisplay(settings);
       saveSettings(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
     }
     if (event.code === "ArrowRight") {
       const totalFrames = Math.ceil(words.length / settings.chunk);
       if (totalFrames > 0) {
         frameIndex = Math.min(totalFrames - 1, frameIndex + 1);
         renderPivot(getFrameWords(settings));
+        if (audioEnabled && !isPaused) {
+          syncAudioToFrame(settings);
+        }
       }
     }
     if (event.code === "ArrowLeft") {
       frameIndex = Math.max(0, frameIndex - 1);
       renderPivot(getFrameWords(settings));
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
     }
     if (event.key.toLowerCase() === "r") {
       resetPlayback();
@@ -387,14 +504,31 @@
     if (event.key.toLowerCase() === "f") {
       toggleFullscreen();
     }
-    if (event.key.toLowerCase() === "s") {
+    if (event.key.toLowerCase() === "a") {
       audioEnabled = !audioEnabled;
-      const audioDisplay = overlay?.querySelector(".rsvp-audio");
-      if (audioDisplay) {
-        audioDisplay.textContent = `Audio: ${audioEnabled ? "On" : "Off"}`;
-      }
+      updateAudioDisplay(settings);
       if (!audioEnabled) {
         stopAudio();
+      } else if (!isPaused) {
+        syncAudioToFrame(settings);
+      }
+    }
+    if (event.code === "ArrowUp") {
+      event.preventDefault();
+      settings.volume = clampVolume(settings.volume + 0.05);
+      saveSettings(settings);
+      updateAudioDisplay(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
+      }
+    }
+    if (event.code === "ArrowDown") {
+      event.preventDefault();
+      settings.volume = clampVolume(settings.volume - 0.05);
+      saveSettings(settings);
+      updateAudioDisplay(settings);
+      if (audioEnabled && !isPaused) {
+        syncAudioToFrame(settings);
       }
     }
     if (event.code === "Escape") {
